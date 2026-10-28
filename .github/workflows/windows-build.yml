@@ -24,6 +24,18 @@ jobs:
       uses: microsoft/setup-msbuild@v3
     - name: Build ${{ matrix.platform }}
       run: msbuild MeshAgent-2022.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+    - name: Test native Win32 BOOL callbacks
+      timeout-minutes: 2
+      shell: pwsh
+      env:
+        AGENT_PLATFORM: ${{ matrix.platform }}
+      run: |
+        $names = @{ x64 = 'MeshService64.exe'; x86 = 'MeshService.exe'; ARM64 = 'MeshServiceARM64.exe' }
+        $agent = Join-Path $PWD ('Release/' + $names[$env:AGENT_PLATFORM])
+        $script = Get-Content test/win32-bool-callback.js -Raw
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
+        & $agent -b64exec $encoded
+        if ($LASTEXITCODE -ne 0) { throw "Native BOOL callback tests failed: $LASTEXITCODE" }
     - name: Upload ${{ matrix.platform }} artifacts
       uses: actions/upload-artifact@v7
       with:

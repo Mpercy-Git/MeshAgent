@@ -972,12 +972,45 @@ void ILibDuktape_GenericMarshal_CallbackProxy_NativeSink_9(PTRSIZE v1, PTRSIZE v
 	duk_pop(user->ctx);
 }
 
+#ifdef WIN32
+// Synchronous Win32 BOOL callbacks (for example WNDENUMPROC) must return the
+// JavaScript result and use CALLBACK/__stdcall on x86. Keep the legacy void
+// callback sinks unchanged for existing callers.
+BOOL APICALLTYPE ILibDuktape_GenericMarshal_CallbackProxy_BoolSink_2(PTRSIZE v1, PTRSIZE v2)
+{
+	Duktape_GenericMarshal_Proxy *user = (Duktape_GenericMarshal_Proxy*)v2;
+	BOOL result = FALSE;
+	if (user == NULL) { return(FALSE); }
+	duk_push_heapptr(user->ctx, user->jsCallbackPtr);
+	duk_push_heapptr(user->ctx, user->jsProxyObject);
+	ILibDuktape_GenericMarshal_Variable_PUSH(user->ctx, (void*)v1, sizeof(PTRSIZE));
+	if (duk_pcall_method(user->ctx, 1) == 0)
+	{
+		result = duk_to_boolean(user->ctx, -1) ? TRUE : FALSE;
+	}
+	else
+	{
+		ILibDuktape_Process_UncaughtException(user->ctx);
+	}
+	duk_pop(user->ctx);
+	return(result);
+}
+#endif
+
 duk_ret_t ILibDuktape_GenericMashal_CallbackProxy_Callback(duk_context *ctx)
 {
 	int parms;
 	duk_push_this(ctx);
 	duk_get_prop_string(ctx, -1, "_numParms");
 	parms = duk_to_int(ctx, -1);
+
+#ifdef WIN32
+	if (Duktape_GetBooleanProperty(ctx, -2, "_boolReturn", 0) != 0)
+	{
+		duk_push_pointer(ctx, (void*)ILibDuktape_GenericMarshal_CallbackProxy_BoolSink_2);
+		return(1);
+	}
+#endif
 
 	switch (parms)
 	{
@@ -1050,6 +1083,21 @@ duk_ret_t ILibDuktape_GenericMarshal_CreateCallbackProxy(duk_context *ctx)
 
 	return 1;
 }
+
+#ifdef WIN32
+duk_ret_t ILibDuktape_GenericMarshal_CreateBoolCallbackProxy(duk_context *ctx)
+{
+	duk_require_function(ctx, 0);
+	if (duk_require_int(ctx, 1) != 2)
+	{
+		return(ILibDuktape_Error(ctx, "BOOL callback proxies require two native parameters, with State last"));
+	}
+	ILibDuktape_GenericMarshal_CreateCallbackProxy(ctx);
+	duk_push_true(ctx);
+	duk_put_prop_string(ctx, -2, "_boolReturn");
+	return(1);
+}
+#endif
 
 PTRSIZE ILibDuktape_GenericMarshal_MethodInvoke_NativeEx(int parms, void *fptr, PTRSIZE *vars, ILibDuktape_GenericMarshal_CallTypes calltype)
 {
@@ -3150,6 +3198,9 @@ void ILibDuktape_GenericMarshal_Push(duk_context *ctx, void *chain)
 
 	ILibDuktape_CreateInstanceMethod(ctx, "CreateVariable", ILibDuktape_GenericMarshal_CreateVariable, DUK_VARARGS);
 	ILibDuktape_CreateInstanceMethod(ctx, "CreateCallbackProxy", ILibDuktape_GenericMarshal_CreateCallbackProxy, 2);
+#ifdef WIN32
+	ILibDuktape_CreateInstanceMethod(ctx, "CreateBoolCallbackProxy", ILibDuktape_GenericMarshal_CreateBoolCallbackProxy, 2);
+#endif
 	ILibDuktape_CreateInstanceMethod(ctx, "CreateNativeProxy", ILibDuktape_GenericMarshal_CreateNativeProxy, DUK_VARARGS);
 	ILibDuktape_CreateInstanceMethod(ctx, "GetGenericGlobalCallback", ILibDuktape_GenericMarshal_GetGlobalGenericCallback, DUK_VARARGS);
 	ILibDuktape_CreateInstanceMethod(ctx, "GetGenericGlobalCallbackEx", ILibDuktape_GenericMarshal_GetGlobalGenericCallbackEx, DUK_VARARGS);
@@ -3228,6 +3279,17 @@ public:
 	\return <NativeCallbackProxy> NativeCallbackProxy object to use for native callback reception.
 	*/
 	NativeCallbackProxy CreateCallbackProxy(func, numVars);
+	/*!
+	\brief Windows-only synchronous BOOL CALLBACK proxy for two native parameters.
+	The first parameter is passed to JavaScript as a NativeVariable; the last must
+	be the proxy's State pointer. The JavaScript truth value is returned as BOOL;
+	an exception returns FALSE. Invoke only on the JavaScript thread and retain the
+	proxy until the native call finishes. Existing void proxies are unchanged.
+	\param func JavaScript callback
+	\param numVars Must be 2 (for example HWND and LPARAM for EnumWindows)
+	\return <NativeCallbackProxy> Pass Callback and State to the native API.
+	*/
+	NativeCallbackProxy CreateBoolCallbackProxy(func, numVars);
 
 	/*!
 	\brief Initializes a proxy variable to use with a NativeProxy object.
