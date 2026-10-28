@@ -18,6 +18,12 @@ checks callback continuation and early termination, validates NULL-state handlin
 and signature rejection, then destroys its windows. It needs no installed service,
 server connection, or signed-in user's application windows.
 
+The workflow also checks out a pinned companion MeshCentral UI module and runs
+it inside the new agent. It verifies both enumeration paths, Unicode titles,
+self-test reporting, visible-window lookup and activation status. The fixture's
+commit is pinned in `windows-build.yml` so changes in the other repository cannot
+silently change what a given agent build tests.
+
 For interactive UI behavior and session dispatch, use the companion MeshCentral
 fork's `agents/win-uiautomation-validation.md` checklist on an installed agent.
 Older agent binaries do not expose `CreateBoolCallbackProxy`; the updated server

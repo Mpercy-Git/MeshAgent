@@ -9,9 +9,10 @@ try
     var GM = require('_GenericMarshal');
     check(typeof GM.CreateBoolCallbackProxy == 'function', 'BOOL callback factory is available');
     user32 = GM.CreateNativeProxy('user32.dll');
-    ['CreateWindowExW', 'DestroyWindow', 'EnumWindows'].forEach(function (name) { user32.CreateMethod(name); });
+    ['CreateWindowExW', 'DestroyWindow', 'EnumWindows', 'ShowWindow'].forEach(function (name) { user32.CreateMethod(name); });
     var cls = GM.CreateVariable('STATIC', { wide: true });
-    var title = GM.CreateVariable('MeshAgent BOOL callback test', { wide: true });
+    var windowTitle = 'MeshAgent BOOL callback test 中文';
+    var title = GM.CreateVariable(windowTitle, { wide: true });
     for (var i = 0; i < 2; ++i)
     {
         var h = value(user32.CreateWindowExW(0, cls, title, 0, 0, 0, 100, 100, 0, 0, 0, 0));
@@ -41,10 +42,30 @@ try
     check(rejected, 'unsupported callback signatures are rejected');
     check(typeof GM.CreateCallbackProxy(function () {}, 2).Callback != 'undefined', 'legacy void callback factory remains available');
 
+    // Exercise the actual companion module in MeshAgent's runtime, not a Node mock.
+    check(!!process.env.UI_AUTOMATION_MODULE, 'companion module fixture is configured');
+    addModule('win-uiautomation', require('fs').readFileSync(process.env.UI_AUTOMATION_MODULE).toString());
+    var uia = require('win-uiautomation');
+    ['callback', 'walk'].forEach(function (method)
+    {
+        var result = uia.enumerateWindows({ method: method, visibleOnly: false, titledOnly: false });
+        windows.forEach(function (hwnd)
+        {
+            var matches = result.windows.filter(function (w) { return w.handle == hwnd; });
+            check(matches.length == 1 && matches[0].title == windowTitle, method + ' describes test window and Unicode title');
+        });
+    });
+    var report = uia.selfTest();
+    check(report.callback.ok && report.walk.ok && report.callbackReturnValueHonored === true, 'companion selfTest exercises both native paths');
+    windows.forEach(function (hwnd) { user32.ShowWindow(hwnd, 5); });
+    check(uia.findWindow(windowTitle).length == 2, 'companion findWindow sees both visible test windows');
+    user32.ShowWindow(windows[0], 6);
+    var activation = uia.activateWindow(windows[0]);
+    check(activation.requested == windows[0] && typeof activation.result == 'boolean', 'companion activation returns native status');
+
     windows.forEach(function (hwnd) { user32.DestroyWindow(hwnd); });
     windows = [];
     console.log('NATIVE BOOL CALLBACK TESTS PASSED (' + (GM.PointerSize * 8) + '-bit)');
-    process.exit(0);
 }
 catch (e)
 {
@@ -52,3 +73,6 @@ catch (e)
     console.log('NATIVE BOOL CALLBACK TEST FAILED: ' + e);
     process.exit(1);
 }
+// MeshAgent terminates script execution by throwing from process.exit(). Keep
+// successful termination outside the test's error handler.
+process.exit(0);

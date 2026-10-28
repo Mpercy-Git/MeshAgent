@@ -25,6 +25,14 @@ jobs:
       uses: microsoft/setup-msbuild@v3
     - name: Build ${{ matrix.platform }}
       run: msbuild MeshAgent-2022.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+    - name: Checkout companion UI module fixture
+      uses: actions/checkout@v7
+      with:
+        repository: Mpercy-Git/MeshCentral
+        ref: 7704339e2754a0876049536a555f4d90589c0a7d
+        path: meshcentral-ui-test
+        sparse-checkout: agents/modules_meshcore/win-uiautomation.js
+        sparse-checkout-cone-mode: false
     - name: Test native Win32 BOOL callbacks
       timeout-minutes: 2
       shell: pwsh
@@ -34,6 +42,7 @@ jobs:
         $names = @{ x64 = 'MeshService64.exe'; x86 = 'MeshService.exe'; ARM64 = 'MeshServiceARM64.exe' }
         $agent = Join-Path $PWD ('Release/' + $names[$env:AGENT_PLATFORM])
         $script = Get-Content test/win32-bool-callback.js -Raw
+        $env:UI_AUTOMATION_MODULE = Join-Path $PWD 'meshcentral-ui-test/agents/modules_meshcore/win-uiautomation.js'
         $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
         & $agent -b64exec $encoded
         if ($LASTEXITCODE -ne 0) { throw "Native BOOL callback tests failed: $LASTEXITCODE" }
